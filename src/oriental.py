@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# -*- coding:utf-8 -*-
+# _*_ coding:utf_8 _*_
 
 # Binary Protocol tentative for OrientDB 1.4
 
@@ -193,12 +193,17 @@ class Request:
 			cluster_position=self.read_long()
 			record_version=self.read_int()
 			record_content=self.read_bytes()
-		elif typ==-3:
+		elif typ==_3:
 			cluster_id=self.read_short()
 			cluster_position=self.read_long()
 
-		return {"typ":typ,"record-type":record-type,"cluster-id":cluster-id,"cluster-position":cluster-position,"record-version":record-version,"record-content":record-content}
+		return {"typ":typ,"record_type":record_type,"cluster_id":cluster_id,"cluster_position":cluster_position,"record_version":record_version,"record_content":record_content}
 
+
+	def update_query(self,query,**kwargs):
+		for i in range(len(query)):
+			if query[i][0] in kwargs:
+				query[i]=(query[i][0],kwargs[query[i][0]])
 
 	def send_request(self,command,content=None):
 		self.sock.send(struct.pack('!B',command))
@@ -207,17 +212,18 @@ class Request:
 			self.write_bytes(content)
 
 
-	def send_db_open(self):
+	def send_db_open(self,**kwargs):
 		query=[
-		("driver-name","orientdb python client"),
-		("driver-version","0.1"),
-		("protocol-version",15, "short"),
-		("client-id","me"),
-		("database-name","demo"),
-		("database-type","document"),
-		("user-name","ghpu"),
-		("user-password","ghpu"),
+		("driver_name","orientdb python client"),
+		("driver_version","0.1"),
+		("protocol_version",15, "short"),
+		("client_id","me"),
+		("database_name","demo"),
+		("database_type","document"),
+		("user_name","ghpu"),
+		("user_password","ghpu"),
 		]
+		self.update_query(query,**kwargs)
 		packed=self.pack_content(query)
 		self.send_request(self.DB_OPEN,packed)
 
@@ -226,51 +232,55 @@ class Request:
 		if not response:
 			return
 		expected=[
-		("session-id","int"),
-		("num-of-clusters","short"),
+		("session_id","int"),
+		("num_of_clusters","short"),
 		]
 		expected=self.unpack_expected(expected)
 		self.session_id=expected[0][1]
 		print "Session id is now : ",self.session_id
 
-	def send_shutdown(self):
+	def send_shutdown(self,**kwargs):
 		query=[
-		("user-name",self.connection.user),
-		("user-password",self.connection.password),
+		("user_name",self.connection.user),
+		("user_password",self.connection.password),
 		]
+		self.update_query(query,**kwargs)
 		packed=self.pack_content(query)
 		self.send_request(self.SHUTDOWN,packed)
 
-	def send_connect(self):
+	def send_connect(self,**kwargs):
 		query=[
-		("driver-name","orientdb python client"),
-		("driver-version","0.1"),
-		("protocol-version",15, "short"),
-		("client-id","me"),
-		("user-name","ghpu"),
-		("user-password","ghpu"),
+		("driver_name","orientdb python client"),
+		("driver_version","0.1"),
+		("protocol_version",15, "short"),
+		("client_id","me"),
+		("user_name","ghpu"),
+		("user_password","ghpu"),
 		]
+		self.update_query(query,**kwargs)
 		packed=self.pack_content(query)
 		self.send_request(self.CONNECT,packed)
 
-	def recv_connect(self):
+	def recv_connect(self,**kwargs):
 		response=self.read_response()
 		if not response:
 			return
 		expected=[
-		("session-id","int"),
+		("session_id","int"),
 		]
+		self.update_query(query,**kwargs)
 		expected=self.unpack_expected(expected)
 		self.session_id=expected[0][1]
 		print "Session id is now : ",self.session_id
 
 
-	def send_db_create(self):
+	def send_db_create(self,**kwargs):
 		query=[
-		("database-name","demode"),
-		("database-type","document"),
-		("storage-type","local"),
+		("database_name","demo"),
+		("database_type","document"),
+		("storage_type","local"),
 		]
+		self.update_query(query,**kwargs)
 		packed=self.pack_content(query)
 		self.send_request(self.DB_CREATE,packed)
 
@@ -314,13 +324,15 @@ def test():
 	print Status.OK
 	r=Request()
 	r.connect()
-	#r.send_db_open()
-	#r.recv_db_open()
-	#r.send_shutdown()
-	r.send_connect()
-	r.recv_connect()
-	r.send_db_create()
+	r.send_db_open(database_name="demo")
+	r.recv_db_open()
 	r.send_db_close()
+
+#	r.send_shutdown()
+#	r.send_connect()
+#	r.recv_connect()
+#	r.send_db_create()
+#	r.send_db_close()
 
 
 if __name__=="__main__":
