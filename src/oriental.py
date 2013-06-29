@@ -36,7 +36,7 @@ class Connection:
 	Represent a connection to a OrientDB server
 	"""
 
-	def __init__(self,host="localhost",port=2424,protocol="http",user="admin",password="admin"):
+	def __init__(self,host="localhost",port=2424,protocol="http",user="ghpu",password="ghpu"):
 		self.protocol=protocol
 		self.host=host
 		self.port=port
@@ -98,6 +98,7 @@ class Request:
 	REQUEST_DB_RELEASE =74
 
 	def connect(self):
+		self.session_id = -1
 		self.connection = Connection()
 		self.sock = socket.create_connection(self.connection.get_url())
 		self.protocol_version=self.read_short()
@@ -105,23 +106,21 @@ class Request:
 
 	def read_response(self):
 		data = self.read_byte()
-		if data==0:
-			print "Success"
+		sid = self.read_int()
+		if ord(data)==0:
 			return True
 		else:
-			print "Error"
 			self.read_error()
 			return False
 
 	def read_error(self):
-			while True:
+		while True:
 			following = self.read_byte()
-			if following==0:
+			if ord(following)==0:
 				break
 			klass=self.read_string()
-			print klass
 			message=self.read_string()
-			print message
+
 		
 
 	def read_byte(self):
@@ -162,16 +161,8 @@ class Request:
 
 	def read_string(self):
 		length = self.read_int()
-		print "Length to read is : ",length
 		if(length>0):
-			data = ""
-			remlength=length
-			while remlength>0:
-				print "remlength",remlength
-				tmp=self.sock.recv(remlength)
-				remlength-=len(tmp)
-				data+=tmp
-				print tmp
+			data=self.sock.recv(length)
 			return struct.unpack('!'+str(length)+'s',data)[0]
 		else:
 			return None
@@ -209,9 +200,9 @@ class Request:
 		return {"typ":typ,"record-type":record-type,"cluster-id":cluster-id,"cluster-position":cluster-position,"record-version":record-version,"record-content":record-content}
 
 
-	def send_request(self,command,session_id=-1,content=None):
+	def send_request(self,command,content=None):
 		self.sock.send(struct.pack('!B',command))
-		self.sock.send(struct.pack('!i',session_id))
+		self.sock.send(struct.pack('!i',self.session_id))
 		if content:
 			self.write_bytes(content)
 
@@ -224,12 +215,11 @@ class Request:
 		("client-id","me"),
 		("database-name","demo"),
 		("database-type","document"),
-		("user-name",self.connection.user),
-		("user-password",self.connection.password),
+		("user-name","ghpu"),
+		("user-password","ghpu"),
 		]
 		packed=self.pack_content(query)
-		print packed
-		self.send_request(self.DB_OPEN,-1,packed)
+		self.send_request(self.DB_OPEN,packed)
 
 	def recv_db_open(self):
 		response=self.read_response()
@@ -240,7 +230,59 @@ class Request:
 		("num-of-clusters","short"),
 		]
 		expected=self.unpack_expected(expected)
-		print expected
+		self.session_id=expected[0][1]
+		print "Session id is now : ",self.session_id
+
+	def send_shutdown(self):
+		query=[
+		("user-name",self.connection.user),
+		("user-password",self.connection.password),
+		]
+		packed=self.pack_content(query)
+		self.send_request(self.SHUTDOWN,packed)
+
+	def send_connect(self):
+		query=[
+		("driver-name","orientdb python client"),
+		("driver-version","0.1"),
+		("protocol-version",15, "short"),
+		("client-id","me"),
+		("user-name","ghpu"),
+		("user-password","ghpu"),
+		]
+		packed=self.pack_content(query)
+		self.send_request(self.CONNECT,packed)
+
+	def recv_connect(self):
+		response=self.read_response()
+		if not response:
+			return
+		expected=[
+		("session-id","int"),
+		]
+		expected=self.unpack_expected(expected)
+		self.session_id=expected[0][1]
+		print "Session id is now : ",self.session_id
+
+
+	def send_db_create(self):
+		query=[
+		("database-name","demode"),
+		("database-type","document"),
+		("storage-type","local"),
+		]
+		packed=self.pack_content(query)
+		self.send_request(self.DB_CREATE,packed)
+
+	def recv_db_create(self):
+		pass
+
+	def send_db_close(self):
+		self.send_request(self.DB_CLOSE,None)
+
+	def recv_db_close(self):
+		pass
+
 
 	def unpack_expected(self,content):
 		result=[]
@@ -249,7 +291,7 @@ class Request:
 			if packmode=="int":
 				result.append((field[0],self.read_int()))
 			elif packmode=="short":
-				result.Append((field[0],self.read_short()))
+				result.append((field[0],self.read_short()))
 		return result
 
 
@@ -272,8 +314,14 @@ def test():
 	print Status.OK
 	r=Request()
 	r.connect()
-	r.send_db_open()
-	r.recv_db_open()
+	#r.send_db_open()
+	#r.recv_db_open()
+	#r.send_shutdown()
+	r.send_connect()
+	r.recv_connect()
+	r.send_db_create()
+	r.send_db_close()
+
 
 if __name__=="__main__":
 	test()
