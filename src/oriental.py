@@ -98,7 +98,7 @@ class Request:
 	REQUEST_DB_RELEASE =74
 
 	def connect(self):
-		self.session_id = -1
+		self.session_id=-1
 		self.connection = Connection()
 		self.sock = socket.create_connection(self.connection.get_url())
 		self.protocol_version=self.read_short()
@@ -201,11 +201,62 @@ class Request:
 
 
 	def update_query(self,query,**kwargs):
+		"""
+		Update a send_command query with arguments taken from kwargs
+		"""
 		for i in range(len(query)):
 			if query[i][0] in kwargs:
 				query[i]=(query[i][0],kwargs[query[i][0]])
 
+	def unpack_expected(self,content):
+		"""
+		Update a recv_command with expected data content
+		"""
+		result=[]
+		for field in content:
+			packmode=field[1]
+			if packmode=="int":
+				result.append((field[0],self.read_int()))
+			elif packmode=="short":
+				result.append((field[0],self.read_short()))
+		return result
+
+
+	def pack_content(self,content):
+		"""
+		Pack content for inclusion in a request
+		TODO : add missing packmodes strings and record
+		"""
+		data=""
+		for field in content:
+			packmode="string" # default packing mode
+			if len(field)>2:
+				packmode=field[2]
+			if packmode=="string":
+				data+=struct.pack('!i',len(field[1]))
+				data+=struct.pack("!"+str(len(field[1]))+"s",field[1])
+			elif packmode=="short":
+				data+=struct.pack("!h",field[1])
+			elif packmode=="boolean":
+				data+=struct.pack("!b",field[1])
+			elif packmode=="byte":
+				data+=struct.pack("!b",field[1])
+			elif packmode=="int":
+				data+=struct.pack("!i",field[1])
+			elif packmode=="long":
+				data+=struct.pack("!l",field[1])
+			elif packmode=="bytes":
+				data+=struct.pack('!i',len(field[1]))
+				data+=struct.pack("!"+str(len(field[1]))+"s",field[1])
+
+		return data
+
+
+
 	def send_request(self,command,content=None):
+		"""
+		Used by all send_command
+		"""
 		self.sock.send(struct.pack('!B',command))
 		self.sock.send(struct.pack('!i',self.session_id))
 		if content:
@@ -268,7 +319,6 @@ class Request:
 		expected=[
 		("session_id","int"),
 		]
-		self.update_query(query,**kwargs)
 		expected=self.unpack_expected(expected)
 		self.session_id=expected[0][1]
 		print "Session id is now : ",self.session_id
@@ -293,44 +343,73 @@ class Request:
 	def recv_db_close(self):
 		pass
 
+	def send_db_exist(self,**kwargs):
+		query=[
+		("database_name","demo"),
+		]
+		self.update_query(query,**kwargs)
+		packed=self.pack_content(query)
+		self.send_request(self.DB_EXIST,packed)
 
-	def unpack_expected(self,content):
-		result=[]
-		for field in content:
-			packmode=field[1]
-			if packmode=="int":
-				result.append((field[0],self.read_int()))
-			elif packmode=="short":
-				result.append((field[0],self.read_short()))
-		return result
+	def recv_db_exist(self):
+		response=self.read_response()
+		if not response:
+			return
+		result=self.sock.recv(1)
+		if ord(result)==0:
+			return False
+		return True
 
 
-	def pack_content(self,content):
-		data=""
-		for field in content:
-			packmode="string" # default packing mode
-			if len(field)>2:
-				packmode=field[2]
-			if packmode=="string":
-				data+=struct.pack('!i',len(field[1]))
-				data+=struct.pack("!"+str(len(field[1]))+"s",field[1])
-			elif packmode=="short":
-				data+=struct.pack("!h",field[1])
-		return data
+	def send_db_reload(self,**kwargs):
+		self.send_request(self.DB_RELOAD,None)
 
+	def recv_db_reload(self,**kwargs):
+		response=self.read_response()
+		if not response:
+			return
+		expected=[
+		("num_of_clusters","short"),
+		("cluster_name","string"),
+		("cluster_id","short"),
+		("cluster_type","string"),
+		("cluster_dataSegment","short"),
+		]
+		expected=self.unpack_expected(expected)
+
+	def send_db_drop(self,**kwargs):
+		query=[
+		("database_name","demo"),
+		]
+		self.update_query(query,**kwargs)
+		packed=self.pack_content(query)
+		self.send_request(self.DB_DROP,packed)
+
+	def recv_db_drop(self):
+		pass
 
 
 def test():
 	print Status.OK
 	r=Request()
 	r.connect()
+
+	r.send_connect()
+	r.recv_connect()
+
 	r.send_db_open(database_name="demo")
 	r.recv_db_open()
+	r.send_db_reload()
 	r.send_db_close()
 
+	r.send_db_exist(database_name="demo")
+	print r.recv_db_exist()
+
+	r.send_db_drop(database_name="demode")
+	print r.recv_db_drop()
+
+
 #	r.send_shutdown()
-#	r.send_connect()
-#	r.recv_connect()
 #	r.send_db_create()
 #	r.send_db_close()
 
