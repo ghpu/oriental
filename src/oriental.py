@@ -8,6 +8,8 @@ import sys
 import struct
 import socket
 from collections import OrderedDict
+import time
+
 
 class Status:
 	"""
@@ -17,7 +19,6 @@ class Status:
 
 	class __metaclass__(type):
 		def __getattr__(self, name):
-			print "Testing for :" ,name
 			return (self.values.index(name),name)
 		def __setattr__(self,name,value):
 			raise NotImplementedError
@@ -145,15 +146,18 @@ class Request:
 
 	def read_long(self):
 		data = self.sock.recv(8)
-		return struct.unpack('!l',data)[0]
+		return struct.unpack('!q',data)[0]
 
 	def write_long(self,l):
-		self.sock.send(struct.pack('!l',l))
+		self.sock.send(struct.pack('!q',l))
 
 	def read_bytes(self):
-		length = self.read_int()		
-		data = self.sock.recv(length)
-		return struct.unpack('!'+str(length)+'s',data)[0]
+		length = self.read_int()
+		if length>0:
+			data = self.sock.recv(length)
+			return struct.unpack('!'+str(length)+'s',data)[0]
+		else:
+			return None
 
 	def write_bytes(self,b):
 		length = len(b)
@@ -193,9 +197,14 @@ class Request:
 			cluster_position=self.read_long()
 			record_version=self.read_int()
 			record_content=self.read_bytes()
-		elif typ==_3:
+		elif typ==-3:
 			cluster_id=self.read_short()
 			cluster_position=self.read_long()
+			record_type=-3
+			record_version=None
+			record_content=None
+		elif typ==-2:
+			return {"typ":-2}
 
 		return {"typ":typ,"record_type":record_type,"cluster_id":cluster_id,"cluster_position":cluster_position,"record_version":record_version,"record_content":record_content}
 
@@ -236,8 +245,12 @@ class Request:
 			if len(field)>2:
 				packmode=field[2]
 			if packmode=="string":
-				data+=struct.pack('!i',len(field[1]))
-				data+=struct.pack("!"+str(len(field[1]))+"s",field[1])
+				if field[1] is not None:
+					data+=struct.pack('!i',len(field[1]))
+					data+=struct.pack("!"+str(len(field[1]))+"s",field[1])
+				else:
+					data+=struct.pack('!i',-1)
+
 			elif packmode=="short":
 				data+=struct.pack("!h",field[1])
 			elif packmode=="boolean":
@@ -247,17 +260,19 @@ class Request:
 			elif packmode=="int":
 				data+=struct.pack("!i",field[1])
 			elif packmode=="long":
-				data+=struct.pack("!l",field[1])
+				data+=struct.pack("!q",field[1])
 			elif packmode=="bytes":
-				data+=struct.pack('!i',len(field[1]))
-				data+=struct.pack("!"+str(len(field[1]))+"s",field[1])
+				if field[1] is not None:
+					data+=struct.pack('!i',len(field[1]))
+					data+=struct.pack("!"+str(len(field[1]))+"s",field[1])
+				else:
+					data+=struct.pack('!i',-1)
 
 			elif packmode.startswith("list"): # for types list:subtype
 				subtype=packmode[5:] # get subtype
 				subpack=[]
 				for f in field[1]:
 					subpack.append(("",f,subtype))
-				print "SUBPACK : ",subpack
 				data+=struct.pack('!i',len(subpack))
 				data+=self.pack_content(subpack)
 			
@@ -301,7 +316,16 @@ class Request:
 		]
 		expected=self.unpack_expected(expected)
 		self.session_id=expected[0][1]
-		print "Session id is now : ",self.session_id
+		num_of_clusters=expected[1][1]
+		clusters=[]
+		for c in range(num_of_clusters):
+			cluster_name=self.read_string()
+			cluster_id=self.read_short()
+			cluster_type=self.read_string()
+			cluster_dataSegmentId=self.read_short()
+		cluster_config=self.read_bytes()
+		orientdb_release=self.read_string()
+
 		return expected
 
 	def send_shutdown(self,**kwargs):
@@ -335,7 +359,6 @@ class Request:
 		]
 		expected=self.unpack_expected(expected)
 		self.session_id=expected[0][1]
-		print "Session id is now : ",self.session_id
 		return expected
 
 
@@ -472,7 +495,6 @@ class Request:
 		("cluster_number",-1,"list:short"),
 		]
 		self.update_query(query,**kwargs)
-		print "QUERY :",query
 		packed=self.pack_content(query)
 		self.send_request(self.DATACLUSTER_COUNT,packed)
 
@@ -483,7 +505,101 @@ class Request:
 		records_in_clusters = self.read_long()
 		return record_in_clusters
 
+	def send_datacluster_datarange(self,**kwargs):
+		query=[
+		("cluster_number",-1,"short"),
+		]
+		self.update_query(query,**kwargs)
+		packed=self.pack_content(query)
+		self.send_request(self.DATACLUSTER_DATARANGE,packed)
 
+	def recv_datacluster_count(self):
+		response=self.read_response()
+		if not response:
+			return
+		expected=[
+		("begin","long"),
+		("end","long"),
+		]
+		expected=self.unpack_expected(expected)
+		return (expected[0][1],expected[1][1])
+
+	def send_datasegment_add(self,**kwargs):
+		query=[
+		("name","cluster"),
+		("location","local"),
+		]
+		self.update_query(query,**kwargs)
+		packed=self.pack_content(query)
+		self.send_request(self.DATASEGMENT_ADD,packed)
+
+	def recv_datasegment_add(self):
+		response=self.read_response()
+		if not response:
+			return
+		expected=[
+		("new_datasegment_id","int"),
+		]
+		expected=self.unpack_expected(expected)
+		return expected[0][1]
+
+	def send_datasegment_remove(self,**kwargs):
+		query=[
+		("name","cluster"),
+		]
+		self.update_query(query,**kwargs)
+		packed=self.pack_content(query)
+		self.send_request(self.DATASEGMENT_REMOVE,packed)
+
+	def recv_datasegment_remove(self):
+		response=self.read_response()
+		if not response:
+			return
+		succeeded = self.read_byte()
+		if ord(succeeded)==1:
+			return True
+		else:
+			return False
+
+
+
+
+
+	def send_record_load(self,**kwargs):
+		query=[
+		("cluster_id",-1,"short"),
+		("cluster_position",1,"long"),
+		("fetch_plan","*:0","string"),
+		("ignore_cache",0,"byte"),
+		("load_tombstone",0,"byte"),
+		]
+		self.update_query(query,**kwargs)
+		packed=self.pack_content(query)
+		self.send_request(self.RECORD_LOAD,packed)
+
+
+	def recv_record_load(self):
+		response=self.read_response()
+		if not response:
+			return
+
+		records=[]
+		while True:
+			payload_status=self.read_byte()
+			if ord(payload_status)==0:
+				break
+			elif ord(payload_status)==1:
+				# a record for result
+				record_content=self.read_bytes()
+				record_version=self.read_int()
+				record_type=self.read_byte()
+				record={"record_content":record_content,"record_version":record_version,"record_type":record_type}
+				records.append(record)
+			time.sleep(10)
+		return records
+
+def print_hex(s):
+	print ':'.join(x.encode('hex') for x in s)
 
 
 def test():
@@ -491,28 +607,33 @@ def test():
 	r=Request()
 	r.connect()
 
-	r.send_connect()
-	r.recv_connect()
+#	r.send_connect()
+#	r.recv_connect()
 
 	r.send_db_open(database_name="demo")
-	r.recv_db_open()
+	print "DB open : ",r.recv_db_open()
 
-	r.send_db_exist(database_name="demo")
-	print r.recv_db_exist()
+	#r.send_db_exist(database_name="demo")
+	#print r.recv_db_exist()
 
 	#r.send_db_drop(database_name="demode")
 	#print r.recv_db_drop()
 
-	r.send_datacluster_count(cluster_count=1,cluster_number=[9])
-	print r.recv_datacluster_count()
+	#r.send_datacluster_count(cluster_count=1,cluster_number=[9])
+	#print r.recv_datacluster_count()
 
-	r.send_db_reload()
-	r.send_db_close()
+	print "record load"
+	r.send_record_load(cluster_id=5,cluster_position=2,fetch_plan="",ignore_cache=0)
+	print r.recv_record_load()
+
+#	r.send_db_reload()
+#	r.send_db_close()
 
 
 #	r.send_shutdown()
 #	r.send_db_create()
 #	r.send_db_close()
+	time.sleep(10)
 
 
 if __name__=="__main__":
