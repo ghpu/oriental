@@ -206,7 +206,10 @@ class Request:
 		"""
 		for i in range(len(query)):
 			if query[i][0] in kwargs:
-				query[i]=(query[i][0],kwargs[query[i][0]])
+				tmp=list(query[i])
+				tmp[1]=kwargs[tmp[0]]
+				query[i]=tuple(tmp)
+
 
 	def unpack_expected(self,content):
 		"""
@@ -249,6 +252,16 @@ class Request:
 				data+=struct.pack('!i',len(field[1]))
 				data+=struct.pack("!"+str(len(field[1]))+"s",field[1])
 
+			elif packmode.startswith("list"): # for types list:subtype
+				subtype=packmode[5:] # get subtype
+				subpack=[]
+				for f in field[1]:
+					subpack.append(("",f,subtype))
+				print "SUBPACK : ",subpack
+				data+=struct.pack('!i',len(subpack))
+				data+=self.pack_content(subpack)
+			
+
 		return data
 
 
@@ -289,6 +302,7 @@ class Request:
 		expected=self.unpack_expected(expected)
 		self.session_id=expected[0][1]
 		print "Session id is now : ",self.session_id
+		return expected
 
 	def send_shutdown(self,**kwargs):
 		query=[
@@ -322,6 +336,7 @@ class Request:
 		expected=self.unpack_expected(expected)
 		self.session_id=expected[0][1]
 		print "Session id is now : ",self.session_id
+		return expected
 
 
 	def send_db_create(self,**kwargs):
@@ -376,6 +391,7 @@ class Request:
 		("cluster_dataSegment","short"),
 		]
 		expected=self.unpack_expected(expected)
+		return expected
 
 	def send_db_drop(self,**kwargs):
 		query=[
@@ -388,6 +404,87 @@ class Request:
 	def recv_db_drop(self):
 		pass
 
+	def send_db_size(self,**kwargs):
+		self.send_request(self.DB_SIZE,None)
+
+	def recv_db_size(self,**kwargs):
+		response=self.read_response()
+		if not response:
+			return
+		expected=[
+		("size","long"),
+		]
+		expected=self.unpack_expected(expected)
+		return expected[0][1]
+
+	def recv_db_countrecords(self,**kwargs):
+		response=self.read_response()
+		if not response:
+			return
+		expected=[
+		("count","long"),
+		]
+		expected=self.unpack_expected(expected)
+		return expected[0][1]
+
+	def send_datacluster_add(self,**kwargs):
+		query=[
+		("type","physical"),
+		("name","cluster"),
+		("location","local"),
+		("datasegment_name","segment"),
+		]
+		self.update_query(query,**kwargs)
+		packed=self.pack_content(query)
+		self.send_request(self.DATACLUSTER_ADD,packed)
+
+	def recv_datacluster_add(self):
+		response=self.read_response()
+		if not response:
+			return
+		expected=[
+		("new_cluster","short"),
+		]
+		expected=self.unpack_expected(expected)
+		return expected[0][1]
+
+	def send_datacluster_remove(self,**kwargs):
+		query=[
+		("cluster_number",-1),
+		]
+		self.update_query(query,**kwargs)
+		packed=self.pack_content(query)
+		self.send_request(self.DATACLUSTER_REMOVE,packed)
+
+	def recv_datacluster_remove(self):
+		response=self.read_response()
+		if not response:
+			return
+		delete_on_clientside = self.read_byte()
+		if ord(delete_on_clientside)==1:
+			return True
+		else:
+			return False
+
+	def send_datacluster_count(self,**kwargs):
+		query=[
+		("cluster_count",0,"short"),
+		("cluster_number",-1,"list:short"),
+		]
+		self.update_query(query,**kwargs)
+		print "QUERY :",query
+		packed=self.pack_content(query)
+		self.send_request(self.DATACLUSTER_COUNT,packed)
+
+	def recv_datacluster_count(self):
+		response=self.read_response()
+		if not response:
+			return
+		records_in_clusters = self.read_long()
+		return record_in_clusters
+
+
+
 
 def test():
 	print Status.OK
@@ -399,14 +496,18 @@ def test():
 
 	r.send_db_open(database_name="demo")
 	r.recv_db_open()
-	r.send_db_reload()
-	r.send_db_close()
 
 	r.send_db_exist(database_name="demo")
 	print r.recv_db_exist()
 
-	r.send_db_drop(database_name="demode")
-	print r.recv_db_drop()
+	#r.send_db_drop(database_name="demode")
+	#print r.recv_db_drop()
+
+	r.send_datacluster_count(cluster_count=1,cluster_number=[9])
+	print r.recv_datacluster_count()
+
+	r.send_db_reload()
+	r.send_db_close()
 
 
 #	r.send_shutdown()
