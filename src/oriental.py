@@ -598,6 +598,115 @@ class Request:
 			time.sleep(10)
 		return records
 
+	def send_record_create(self,**kwargs):
+		query=[
+		("database_id",-1,"int"),
+		("cluster_id",1,"short"),
+		("record_content",None,"bytes"),
+		("record_type","d","byte"),
+		("mode",0,"byte"),
+		]
+		self.update_query(query,**kwargs)
+		packed=self.pack_content(query)
+		self.send_request(self.RECORD_CREATE,packed)
+
+	def recv_record_create(self):
+		response=self.read_response()
+		if not response:
+			return
+		expected=[
+		("cluster_position","long"),
+		("record_version","int"),
+		]
+		expected=self.unpack_expected(expected)
+		return expected[0][1]
+
+	def send_record_update(self,**kwargs):
+		query=[
+		("cluster_id",-1,"short"),
+		("cluster_position",1,"long"),
+		("record_content",None,"bytes"),
+		("record_version",-1,"int"),
+		("record_type","d","byte"),
+		("mode",0,"byte"),
+		]
+		self.update_query(query,**kwargs)
+		packed=self.pack_content(query)
+		self.send_request(self.RECORD_UPDATE,packed)
+
+	def recv_record_update(self):
+		response=self.read_response()
+		if not response:
+			return
+		expected=[
+		("record_version","int"),
+		]
+		expected=self.unpack_expected(expected)
+		return expected[0][1]
+
+	def send_record_delete(self,**kwargs):
+		query=[
+		("cluster_id",-1,"short"),
+		("cluster_position",1,"long"),
+		("record_version",-1,"int"),
+		("mode",0,"byte"),
+		]
+		self.update_query(query,**kwargs)
+		packed=self.pack_content(query)
+		self.send_request(self.RECORD_DELETE,packed)
+
+	def recv_record_delete(self):
+		response=self.read_response()
+		if not response:
+			return
+		expected=[
+		("payload_status","byte"),
+		]
+		expected=self.unpack_expected(expected)
+		return expected[0][1]
+
+	def send_count(self,**kwargs):
+		query=[
+		("cluster_name","","string"),
+		]
+		self.update_query(query,**kwargs)
+		packed=self.pack_content(query)
+		self.send_request(self.COUNT,packed)
+
+	def recv_count(self):
+		response=self.read_response()
+		if not response:
+			return
+		expected=[
+		("record_count","long"),
+		]
+		expected=self.unpack_expected(expected)
+		return expected[0][1]
+
+	def send_command(self,**kwargs):
+		query=[
+		("mode","s","byte"),
+		("class_name",None,"string"),
+		("command_payload_length",0,"int"),
+		("command_payload",None,"bytes"),
+		]
+		self.update_query(query,**kwargs)
+		packed=self.pack_content(query)
+		self.send_request(self.COMMAND,packed)
+
+	def recv_command(self):
+		response=self.read_response()
+		if not response:
+			return
+		expected=[
+		("payload_status","byte"),
+		]
+		expected=self.unpack_expected(expected)
+		return expected[0][1]
+
+
+
+
 def print_hex(s):
 	print ':'.join(x.encode('hex') for x in s)
 
